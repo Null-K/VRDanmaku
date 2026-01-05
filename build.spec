@@ -4,6 +4,8 @@ import os
 import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files
 
+block_cipher = None
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(SPEC))
 
 import openvr
