@@ -1,0 +1,7 @@
+openvr
+glfw
+PyOpenGL
+Pillow
+bilibili-api-python
+pywebview
+aiohttp

@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>VRDanmaku</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #111;
+            --bg-tertiary: #1a1a1a;
+            --bg-hover: #222;
+            --border: #2a2a2a;
+            --text-primary: #e5e5e5;
+            --text-secondary: #888;
+            --text-dim: #555;
+            --accent: #0ea5e9;
+            --accent-dim: #0c87c1;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --radius: 8px;
+            --radius-sm: 6px;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            line-height: 1.5;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+        
+        .app {
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* 左侧面板 */
+        .sidebar {
+            width: 320px;
+            min-width: 320px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .sidebar-header h1 {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+        
+        .status-dot.connected { background: var(--success); }
+        .status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+        .status-dot.error { background: var(--error); }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        
+        /* 右侧日志 */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-primary);
+        }
+        
+        .log-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .log-header span {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .log-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .log-actions button {
+            padding: 4px 10px;
+            font-size: 11px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+        }
+        
+        .log-actions button:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        .log-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 16px;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            padding: 3px 0;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+        
+        .log-entry.info { color: var(--text-primary); }
+        .log-entry.success { color: var(--success); }
+        .log-entry.warning { color: var(--warning); }
+        .log-entry.error { color: var(--error); }
+        .log-entry .time { color: var(--text-dim); margin-right: 8px; }
+</style>
+</head>
+<body>
+    <div class="app">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>VRDanmaku</h1>
+                <div class="status-badge">
+                    <div class="status-dot" id="status-dot"></div>
+                    <span id="status-text">未连接</span>
+                </div>
+            </div>
+            <div class="sidebar-content">
+                <!-- 连接区 -->
+                <div class="section">
+                    <div class="section-header">直播间</div>
+                    <div class="input-row">
+                        <input type="text" id="room-id" placeholder="输入房间号" class="input">
+                        <button class="btn btn-primary" id="connect-btn" onclick="toggleConnect()">连接</button>
+                    </div>
+                </div>
+
+                <!-- 账号 -->
+                <div class="section">
+                    <div class="section-header">账号</div>
+                    <div class="credential-row">
+                        <span class="cred-icon" id="cred-icon">○</span>
+                        <span id="cred-text">检查中...</span>
+                        <button class="btn-small" id="qr-btn" onclick="startQrLogin()" style="display:none;">扫码登录</button>
+                        <button class="btn-small" id="logout-btn" onclick="logout()" style="display:none;">退出登录</button>
+                    </div>
+                </div>
+
+                <!-- 绑定模式 -->
+                <div class="section">
+                    <div class="section-header">绑定模式</div>
+                    <div class="toggle-group">
+                        <button class="toggle-btn active" id="mode-hmd" onclick="setMode('hmd')">头显</button>
+                        <button class="toggle-btn" id="mode-hand" onclick="setMode('hand')">左手</button>
+                    </div>
+                </div>
+
+                <!-- 显示切换 -->
+                <div class="section">
+                    <div class="section-header">显示切换</div>
+                    <div class="toggle-group">
+                        <button class="toggle-btn active" id="toggle-left" onclick="setToggleHand('left')">左手柄</button>
+                        <button class="toggle-btn" id="toggle-right" onclick="setToggleHand('right')">右手柄</button>
+                        <button class="toggle-btn" id="toggle-always" onclick="setToggleHand('always_on')">常开</button>
+                    </div>
+                </div>
+
+                <!-- 预设 -->
+                <div class="section hmd-settings">
+                    <div class="section-header">预设位置</div>
+                    <div class="btn-row">
+                        <button class="btn-small" onclick="applyPreset('left')">左前方</button>
+                        <button class="btn-small" onclick="applyPreset('center')">正前方</button>
+                        <button class="btn-small" onclick="applyPreset('right')">右前方</button>
+                    </div>
+                </div>
+
+                <!-- 位置 -->
+                <div class="section hmd-settings">
+                    <div class="section-header">位置</div>
+                    <div class="slider-row"><span>水平</span><input type="range" id="x" min="-1" max="1" step="0.02"><span id="x-val">0</span></div>
+                    <div class="slider-row"><span>垂直</span><input type="range" id="y" min="-0.8" max="0.8" step="0.02"><span id="y-val">0</span></div>
+                    <div class="slider-row"><span>距离</span><input type="range" id="z" min="-1.5" max="-0.3" step="0.02"><span id="z-val">0</span></div>
+                </div>
+
+                <!-- 角度 -->
+                <div class="section hmd-settings">
+                    <div class="section-header">角度</div>
+                    <div class="slider-row"><span>俯仰</span><input type="range" id="pitch" min="-30" max="30" step="1"><span id="pitch-val">0°</span></div>
+                    <div class="slider-row"><span>偏航</span><input type="range" id="yaw" min="-30" max="30" step="1"><span id="yaw-val">0°</span></div>
+                    <div class="slider-row"><span>翻滚</span><input type="range" id="roll" min="-20" max="20" step="1"><span id="roll-val">0°</span></div>
+                </div>
+
+                <!-- 手部位置 -->
+                <div class="section hand-settings" style="display:none;">
+                    <div class="section-header">位置微调</div>
+                    <div class="slider-row"><span>左右</span><input type="range" id="hx" min="-0.1" max="0.1" step="0.01"><span id="hx-val">0</span></div>
+                    <div class="slider-row"><span>上下</span><input type="range" id="hy" min="0" max="0.15" step="0.01"><span id="hy-val">0</span></div>
+                    <div class="slider-row"><span>前后</span><input type="range" id="hz" min="-0.1" max="0.1" step="0.01"><span id="hz-val">0</span></div>
+                </div>
+
+                <!-- 外观 -->
+                <div class="section">
+                    <div class="section-header">外观</div>
+                    <div class="slider-row"><span>大小</span><input type="range" id="scale" min="0.15" max="0.8" step="0.01"><span id="scale-val">0.40</span></div>
+                    <div class="slider-row"><span>透明</span><input type="range" id="alpha" min="0.3" max="1" step="0.02"><span id="alpha-val">0.92</span></div>
+                    <div class="slider-row"><span>背景</span><input type="range" id="bg_alpha" min="0" max="1" step="0.05"><span id="bg_alpha-val">0.85</span></div>
+                    <div class="slider-row"><span>字号</span><input type="range" id="font_size" min="10" max="20" step="1"><span id="font_size-val">14</span></div>
+                </div>
+
+                <!-- 显示内容 -->
+                <div class="section">
+                    <div class="section-header">显示内容</div>
+                    <div class="checkbox-grid">
+                        <label><input type="checkbox" id="show_danmaku" checked><span>弹幕</span></label>
+                        <label><input type="checkbox" id="show_gift" checked><span>礼物</span></label>
+                        <label><input type="checkbox" id="show_sc" checked><span>SC</span></label>
+                        <label><input type="checkbox" id="show_guard" checked><span>舰长</span></label>
+                        <label><input type="checkbox" id="show_follow" checked><span>关注</span></label>
+                        <label><input type="checkbox" id="show_enter" checked><span>进入</span></label>
+                    </div>
+                </div>
+
+                <!-- 测试 -->
+                <div class="section">
+                    <div class="section-header">测试</div>
+                    <div class="btn-row">
+                        <button class="btn-small" onclick="sendTest('danmaku')">弹幕</button>
+                        <button class="btn-small" onclick="sendTest('sc')">SC</button>
+                        <button class="btn-small" onclick="sendTest('gift')">礼物</button>
+                        <button class="btn-small" onclick="sendTest('enter')">进入</button>
+                        <button class="btn-small" onclick="sendTest('warning')">警告</button>
+                    </div>
+                </div>
+
+                <!-- 操作 -->
+                <div class="section">
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" onclick="resetConfig()">重置</button>
+                        <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main">
+            <div class="log-header">
+                <span>日志</span>
+                <div class="log-actions">
+                    <button onclick="clearLog()">清空</button>
+                </div>
+            </div>
+            <div class="log-container" id="log-container"></div>
+        </div>
+    </div>
+
+    <style>
+        /* 区块 */
+        .section {
+            margin-bottom: 16px;
+        }
+        
+        .section-header {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        
+        /* 输入 */
+        .input-row {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .input {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+        }
+        
+        .input:focus {
+            border-color: var(--accent);
+        }
+        
+        /* 按钮 */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--accent-dim);
+        }
+        
+        .btn-primary:disabled {
+            background: var(--text-dim);
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        .btn-small {
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .btn-small:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        .btn-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-row .btn {
+            flex: 1;
+        }
+        
+        .btn-row .btn-small {
+            flex: 1;
+        }
+        
+        /* 开关组 */
+        .toggle-group {
+            display: flex;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            padding: 3px;
+            gap: 2px;
+        }
+        
+        .toggle-btn {
+            flex: 1;
+            padding: 6px 10px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .toggle-btn:hover {
+            color: var(--text-primary);
+        }
+        
+        .toggle-btn.active {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        /* 滑块 */
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .slider-row span:first-child {
+            width: 36px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .slider-row span:last-child {
+            width: 40px;
+            text-align: right;
+            font-size: 11px;
+            font-family: "SF Mono", Monaco, monospace;
+            color: var(--text-primary);
+        }
+        
+        .slider-row input[type="range"] {
+            flex: 1;
+            height: 4px;
+            appearance: none;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            outline: none;
+        }
+        
+        .slider-row input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        /* 复选框 */
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+        
+        .checkbox-grid label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .checkbox-grid label:hover {
+            background: var(--bg-hover);
+        }
+        
+        .checkbox-grid input {
+            width: 12px;
+            height: 12px;
+            accent-color: var(--accent);
+        }
+        
+        .checkbox-grid label:has(input:checked) span {
+            color: var(--text-primary);
+        }
+        
+        /* 凭证 */
+        .credential-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+        }
+        
+        .cred-icon {
+            font-size: 12px;
+        }
+        
+        .cred-icon.ok { color: var(--success); }
+        .cred-icon.no { color: var(--text-dim); }
+        
+        #cred-text {
+            flex: 1;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-dim);
+        }
+    </style>
+
+    <script>
+        const sliders = ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'scale', 'alpha', 'bg_alpha', 'font_size'];
+        const handSliders = ['hx', 'hy', 'hz'];
+        const checkboxes = ['show_danmaku', 'show_gift', 'show_sc', 'show_guard', 'show_follow', 'show_enter'];
+        const angleKeys = ['pitch', 'yaw', 'roll'];
+        const intKeys = ['font_size'];
+        const debounceTimers = {};
+        let isConnected = false;
+
+        function debounce(key, fn, delay = 50) {
+            clearTimeout(debounceTimers[key]);
+            debounceTimers[key] = setTimeout(fn, delay);
+        }
+
+        function formatValue(key, val) {
+            if (angleKeys.includes(key)) return Math.round(val) + '°';
+            if (intKeys.includes(key)) return Math.round(val);
+            return val.toFixed(2);
+        }
+
+        function log(msg, type = 'info') {
+            const container = document.getElementById('log-container');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            entry.innerHTML = `<span class="time">${time}</span>${msg}`;
+            container.appendChild(entry);
+            
+            // 限制日志数量
+            while (container.children.length > 500) {
+                container.removeChild(container.firstChild);
+            }
+            
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log-container').innerHTML = '';
+        }
+
+        function updateStatus(status, text) {
+            const dot = document.getElementById('status-dot');
+            const txt = document.getElementById('status-text');
+            dot.className = 'status-dot ' + status;
+            txt.textContent = text;
+        }
+
+        function updateDisplay(config) {
+            sliders.forEach(key => {
+                const slider = document.getElementById(key);
+                const valEl = document.getElementById(key + '-val');
+                if (slider && config[key] !== undefined) {
+                    slider.value = config[key];
+                    valEl.textContent = formatValue(key, config[key]);
+                }
+            });
+            handSliders.forEach(key => {
+                const slider = document.getElementById(key);
+                const valEl = document.getElementById(key + '-val');
+                const realKey = key.substring(1);
+                if (slider && config[realKey] !== undefined) {
+                    slider.value = config[realKey];
+                    valEl.textContent = config[realKey].toFixed(2);
+                }
+            });
+            checkboxes.forEach(key => {
+                const cb = document.getElementById(key);
+                if (cb && config[key] !== undefined) cb.checked = config[key];
+            });
+            
+            const roomInput = document.getElementById('room-id');
+            if (config.last_room_id) roomInput.value = config.last_room_id;
+            
+            setModeUI(config.attach_mode || 'hmd');
+            setToggleHandUI(config.toggle_hand || 'left');
+        }
+
+        function setModeUI(mode) {
+            document.getElementById('mode-hmd').classList.toggle('active', mode === 'hmd');
+            document.getElementById('mode-hand').classList.toggle('active', mode === 'hand');
+            document.querySelectorAll('.hmd-settings').forEach(el => el.style.display = mode === 'hmd' ? '' : 'none');
+            document.querySelectorAll('.hand-settings').forEach(el => el.style.display = mode === 'hand' ? '' : 'none');
+        }
+
+        function setToggleHandUI(hand) {
+            document.getElementById('toggle-left').classList.toggle('active', hand === 'left');
+            document.getElementById('toggle-right').classList.toggle('active', hand === 'right');
+            document.getElementById('toggle-always').classList.toggle('active', hand === 'always_on');
+        }
+
+        async function setMode(mode) {
+            setModeUI(mode);
+            await pywebview.api.update_config('attach_mode', mode);
+            log('切换到' + (mode === 'hmd' ? '头显' : '左手') + '模式');
+            const config = await pywebview.api.get_config();
+            updateDisplay(config);
+        }
+
+        async function setToggleHand(hand) {
+            setToggleHandUI(hand);
+            await pywebview.api.update_config('toggle_hand', hand);
+        }
+
+        sliders.forEach(key => {
+            const slider = document.getElementById(key);
+            if (!slider) return;
+            slider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                document.getElementById(key + '-val').textContent = formatValue(key, val);
+                debounce(key, () => pywebview.api.update_config(key, val), 30);
+            });
+        });
+
+        handSliders.forEach(key => {
+            const slider = document.getElementById(key);
+            if (!slider) return;
+            slider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                document.getElementById(key + '-val').textContent = val.toFixed(2);
+                debounce(key, () => pywebview.api.update_config(key.substring(1), val), 30);
+            });
+        });
+
+        checkboxes.forEach(key => {
+            const cb = document.getElementById(key);
+            if (!cb) return;
+            cb.addEventListener('change', (e) => {
+                pywebview.api.update_config(key, e.target.checked);
+            });
+        });
+
+        async function toggleConnect() {
+            const btn = document.getElementById('connect-btn');
+            const roomInput = document.getElementById('room-id');
+            
+            if (isConnected) {
+                await pywebview.api.disconnect();
+                isConnected = false;
+                btn.textContent = '连接';
+                roomInput.disabled = false;
+                updateStatus('', '未连接');
+            } else {
+                const roomId = roomInput.value.trim();
+                if (!roomId || !/^\d+$/.test(roomId)) {
+                    log('请输入有效的房间号', 'error');
+                    return;
+                }
+                
+                btn.disabled = true;
+                btn.textContent = '连接中...';
+                updateStatus('connecting', '连接中');
+                
+                const result = await pywebview.api.connect(parseInt(roomId));
+                
+                if (result.success) {
+                    isConnected = true;
+                    btn.textContent = '断开';
+                    roomInput.disabled = true;
+                    updateStatus('connected', '已连接');
+                } else {
+                    updateStatus('error', '连接失败');
+                    btn.textContent = '连接';
+                    log('连接失败: ' + result.error, 'error');
+                }
+                btn.disabled = false;
+            }
+        }
+
+        async function applyPreset(name) {
+            const config = await pywebview.api.apply_preset(name);
+            updateDisplay(config);
+            log('已应用预设');
+        }
+
+        async function resetConfig() {
+            const config = await pywebview.api.reset_config();
+            updateDisplay(config);
+            log('已重置配置');
+        }
+
+        async function saveConfig() {
+            await pywebview.api.save_config();
+            log('配置已保存', 'success');
+        }
+
+        async function sendTest(type) {
+            await pywebview.api.send_test(type);
+        }
+
+        async function checkCredential() {
+            const result = await pywebview.api.check_credential();
+            const icon = document.getElementById('cred-icon');
+            const text = document.getElementById('cred-text');
+            const qrBtn = document.getElementById('qr-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            
+            if (result.has_credential) {
+                icon.textContent = '●';
+                icon.className = 'cred-icon ok';
+                text.textContent = '已登录';
+                qrBtn.style.display = 'none';
+                logoutBtn.style.display = '';
+            } else {
+                icon.textContent = '○';
+                icon.className = 'cred-icon no';
+                text.textContent = '未登录';
+                qrBtn.style.display = '';
+                logoutBtn.style.display = 'none';
+            }
+        }
+        
+        async function logout() {
+            await pywebview.api.logout();
+            log('已退出登录');
+            checkCredential();
+        }
+
+        let qrPollInterval = null;
+        let lastQrStatus = null;
+
+        async function startQrLogin() {
+            const btn = document.getElementById('qr-btn');
+            btn.disabled = true;
+            btn.textContent = '生成中...';
+            lastQrStatus = null;
+            log('正在生成登录二维码...');
+            
+            await pywebview.api.start_qr_login();
+            
+            qrPollInterval = setInterval(async () => {
+                const result = await pywebview.api.get_qr_status();
+                
+                // 打开二维码
+                if (result.should_open) {
+                    const openResult = await pywebview.api.open_qr_image();
+                    if (openResult.success) {
+                        log('二维码已打开，请使用B站APP扫描');
+                    } else {
+                        log('路径: ' + openResult.path, 'warning');
+                    }
+                    btn.textContent = '等待扫码';
+                }
+
+                if (result.status === lastQrStatus) return;
+                lastQrStatus = result.status;
+                
+                if (result.status === 'waiting') {
+                    btn.textContent = '等待扫码';
+                } else if (result.status === 'scanned') {
+                    log('已扫描, 请在手机上确认');
+                } else if (result.status === 'confirming') {
+                    log('确认中');
+                } else if (result.status === 'done') {
+                    clearInterval(qrPollInterval);
+                    btn.disabled = false;
+                    btn.textContent = '扫码登录';
+                    log('登录成功', 'success');
+                    checkCredential();
+                } else if (result.status === 'timeout') {
+                    clearInterval(qrPollInterval);
+                    btn.disabled = false;
+                    btn.textContent = '扫码登录';
+                    log('二维码已过期', 'warning');
+                } else if (result.status && result.status.startsWith('error')) {
+                    clearInterval(qrPollInterval);
+                    btn.disabled = false;
+                    btn.textContent = '扫码登录';
+                    log('登录失败: ' + result.status, 'error');
+                }
+            }, 1000);
+        }
+
+        // 接收后端日志
+        window.addLog = function(msg, type) {
+            log(msg, type || 'info');
+        };
+
+        // 更新连接状态
+        window.updateConnectionStatus = function(connected, online) {
+            if (connected) {
+                updateStatus('connected', '在线: ' + online);
+            } else {
+                updateStatus('connecting', '重连中...');
+            }
+        };
+
+        window.addEventListener('pywebviewready', async () => {
+            log('界面已加载');
+            const config = await pywebview.api.get_config();
+            updateDisplay(config);
+            checkCredential();
+            
+            // 检查 VR 状态
+            const vrStatus = await pywebview.api.init_vr();
+            if (!vrStatus.success) {
+                log('VR初始化失败: ' + vrStatus.error, 'error');
+            }
+        });
+
+        document.getElementById('room-id').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') toggleConnect();
+        });
+    </script>
+</body>
+</html>
