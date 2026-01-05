@@ -4,6 +4,10 @@
 # VRDanmaku
 一款面向 **SteamVR** 的哔哩哔哩弹幕姬工具，支持在 VR 中实时显示弹幕与互动信息。
 
+<p align="center">
+  <img src="main.png" width="1000">
+</p>
+
 ## 首次启动
 1. 下载 `VRDanmaku.exe` 软件。
 2. 启动 SteamVR，并确保 VR 设备已正常连接
