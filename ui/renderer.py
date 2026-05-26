@@ -2,7 +2,7 @@ import datetime
 import os
 import sys
 import time
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -106,6 +106,9 @@ class DanmakuRenderer:
         
         # SC 显示队列
         self.sc_display_duration = 30
+        
+        # 复用图像缓冲区
+        self._img_buffer: Optional[Image.Image] = None
     
     def _load_fonts(self, size: int) -> None:
         self.font_size = size
@@ -190,7 +193,14 @@ class DanmakuRenderer:
         bg_alpha_value = int(255 * self.bg_alpha)
         bg_color = COLORS['bg'][:3] + (bg_alpha_value,)
         
-        img = Image.new('RGBA', (self.width, self.height), bg_color)
+        # 复用图像缓冲区
+        if self._img_buffer is None or self._img_buffer.size != (self.width, self.height):
+            self._img_buffer = Image.new('RGBA', (self.width, self.height), bg_color)
+        else:
+            # 清空画布
+            self._img_buffer.paste(bg_color, (0, 0, self.width, self.height))
+        
+        img = self._img_buffer
         draw = ImageDraw.Draw(img)
         
         # 渲染头部
@@ -215,7 +225,7 @@ class DanmakuRenderer:
         sep_y = sc_bottom + self.item_gap // 2
         draw.line([(self.padding, sep_y), (self.width - self.padding, sep_y)], fill=COLORS['separator'])
         
-        # 滚动动画
+        # 滚动动画（使用相对偏移，定期重置防止浮点溢出）
         msg_count = len(normal_messages)
         if msg_count > self.last_msg_count:
             new_count = msg_count - self.last_msg_count
@@ -226,6 +236,11 @@ class DanmakuRenderer:
             self.scroll_offset += (self.target_scroll - self.scroll_offset) * 0.3
             if self.target_scroll - self.scroll_offset < 1:
                 self.scroll_offset = self.target_scroll
+        
+        # 动画完成后重置，防止数值无限增长
+        if self.scroll_offset == self.target_scroll and self.target_scroll > 10000:
+            self.scroll_offset = 0.0
+            self.target_scroll = 0.0
         
         # 渲染弹幕列表
         self._render_messages(draw, normal_messages, sc_bottom + self.item_gap)

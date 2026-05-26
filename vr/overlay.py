@@ -1,5 +1,7 @@
 import ctypes
 import math
+import subprocess
+import time
 from typing import Optional
 
 import openvr
@@ -37,16 +39,58 @@ class VROverlay:
         GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
         
         # OpenVR 初始化
+        max_retries = 3
+        retry_delay = 2.0
+        last_error = ""
+        
+        for attempt in range(max_retries):
+            # 检查 SteamVR 进程是否存在
+            if not self._is_steamvr_running():
+                last_error = "SteamVR 未运行"
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                continue
+            
+            try:
+                self.vr_system = openvr.init(openvr.VRApplication_Overlay)
+                self.overlay = openvr.IVROverlay()
+                self.overlay_handle = self.overlay.createOverlay(
+                    "vr_bili_danmaku", "VR Bilibili Danmaku"
+                )
+                self.overlay.showOverlay(self.overlay_handle)
+                return True
+            except openvr.OpenVRError as e:
+                last_error = str(e)
+                # 如果是残留状态，先 shutdown 再重试
+                try:
+                    openvr.shutdown()
+                except Exception:
+                    pass
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+            except Exception as e:
+                last_error = str(e)
+                try:
+                    openvr.shutdown()
+                except Exception:
+                    pass
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+        
+        self._init_error = last_error
+        return False
+    
+    def _is_steamvr_running(self) -> bool:
         try:
-            self.vr_system = openvr.init(openvr.VRApplication_Overlay)
-            self.overlay = openvr.IVROverlay()
-            self.overlay_handle = self.overlay.createOverlay(
-                "vr_bili_danmaku", "VR Bilibili Danmaku"
+            result = subprocess.run(
+                ['tasklist', '/FI', 'IMAGENAME eq vrserver.exe', '/NH'],
+                capture_output=True, text=True, timeout=5,
+                creationflags=0x08000000  # CREATE_NO_WINDOW
             )
-            self.overlay.showOverlay(self.overlay_handle)
-            return True
+            return 'vrserver.exe' in result.stdout.lower()
         except Exception:
-            return False
+            # 如果检测失败，假设在运行，让 openvr.init 自己判断
+            return True
     
     def apply_config(self, config: dict) -> None:
         self.config = config

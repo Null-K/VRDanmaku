@@ -124,14 +124,20 @@ class AppController:
     def init_vr(self) -> dict:
         self._vr_init_result = None
         self._running = True
-        
         threading.Thread(target=self._vr_thread, daemon=True).start()
-        for _ in range(50):
-            if self._vr_init_result is not None:
-                break
-            time.sleep(0.1)
-        
-        return self._vr_init_result or {"success": False, "error": "初始化超时"}
+        # 立即返回，不阻塞 UI 线程
+        return {"success": True, "pending": True}
+    
+    def _notify_vr_status(self, success: bool, error: Optional[str]):
+        if self.window:
+            try:
+                if success:
+                    self.window.evaluate_js('onVRInitResult(true, null)')
+                else:
+                    safe_error = (error or '未知错误').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                    self.window.evaluate_js(f'onVRInitResult(false, "{safe_error}")')
+            except:
+                pass
     
     def _vr_thread(self):
         try:
@@ -141,7 +147,9 @@ class AppController:
             
             self.overlay = VROverlay()
             if not self.overlay.init():
-                self._vr_init_result = {"success": False, "error": "SteamVR 未运行"}
+                error = getattr(self.overlay, '_init_error', 'SteamVR 未运行')
+                self._vr_init_result = {"success": False, "error": f"初始化失败： {error}"}
+                self._notify_vr_status(False, error)
                 return
             
             self.overlay.apply_config(self.config)
@@ -157,10 +165,12 @@ class AppController:
                 self.overlay.visible = True
             
             self.log("VR 初始化完成", "success")
-            
             self._vr_init_result = {"success": True}
+            self._notify_vr_status(True, None)
             
             # VR 主循环
+            last_messages = []
+            last_msg_len = 0
             while self._running:
                 try:
                     if self.controller:
@@ -168,21 +178,26 @@ class AppController:
                     
                     if self.overlay and self.overlay.visible and self.renderer:
                         if self.danmaku_client:
-                            messages = list(self.danmaku_client.messages)
+                            # 只在消息数量变化时才拷贝列表
+                            current_len = len(self.danmaku_client.messages)
+                            if current_len != last_msg_len:
+                                last_messages = list(self.danmaku_client.messages)
+                                last_msg_len = current_len
                             room_id = self.danmaku_client.room_id
                             online = self.danmaku_client.online
                             connected = self.danmaku_client.connected
                             reconnect = self.danmaku_client.reconnect_count
                         else:
-                            messages = []
+                            last_messages = []
+                            last_msg_len = 0
                             room_id = 0
                             online = 0
                             connected = False
                             reconnect = 0
                         
-                        if self.renderer.should_render(len(messages)):
+                        if self.renderer.should_render(last_msg_len):
                             img = self.renderer.render(
-                                messages, room_id, online, connected, reconnect
+                                last_messages, room_id, online, connected, reconnect
                             )
                             self.overlay.update_texture(img)
                 except Exception as e:
@@ -192,6 +207,7 @@ class AppController:
         except Exception as e:
             import traceback
             self._vr_init_result = {"success": False, "error": str(e)}
+            self._notify_vr_status(False, str(e))
     
     # 弹幕
     def connect(self, room_id: int) -> dict:
@@ -205,6 +221,8 @@ class AppController:
             
             if not credential:
                 self.log("未登录, 用户名将显示为 ***", "warning")
+            
+            self.log("[Tips] 弹幕中的 [舰长] 标识表示该用户在任意直播间开通了舰长及以上权益，不一定是本直播间的舰长", "info")
             
             def run():
                 asyncio.run(self._connect_loop())

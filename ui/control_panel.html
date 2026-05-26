@@ -829,17 +829,21 @@
             }
         };
 
+        // VR 初始化结果回调
+        window.onVRInitResult = function(success, error) {
+            if (!success) {
+                log('VR初始化失败: ' + error, 'error');
+            }
+        };
+
         window.addEventListener('pywebviewready', async () => {
             log('界面已加载');
             const config = await pywebview.api.get_config();
             updateDisplay(config);
             checkCredential();
             
-            // 检查 VR 状态
-            const vrStatus = await pywebview.api.init_vr();
-            if (!vrStatus.success) {
-                log('VR初始化失败: ' + vrStatus.error, 'error');
-            }
+            // 启动 VR 初始化
+            await pywebview.api.init_vr();
         });
 
         document.getElementById('room-id').addEventListener('keypress', (e) => {

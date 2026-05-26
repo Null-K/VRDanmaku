@@ -74,37 +74,19 @@ class BiliDanmakuClient:
         
         @self.room.on('SUPER_CHAT_MESSAGE')
         async def on_sc(event):
-            data = event['data'].get('data', {})
-            user = data.get('user_info', {}).get('uname', '???')
-            text = data.get('message', '')
-            price = data.get('price', 0)
-            self.messages.append({
-                'type': 'sc', 'user': user, 'text': text, 'price': price,
-                'time': time.time()
-            })
-            log(f"[SC {price}元] {user}: {text}")
+            self._handle_sc(event)
+        
+        @self.room.on('SUPER_CHAT_MESSAGE_NEW')
+        async def on_sc_new(event):
+            self._handle_sc(event)
 
+        @self.room.on('INTERACT_WORD')
+        async def on_enter(event):
+            self._handle_interact(event)
+        
         @self.room.on('INTERACT_WORD_V2')
         async def on_enter_v2(event):
-            data = event['data'].get('data', {})
-            pb = data.get('pb_decoded', {})
-            user = pb.get('uname', '')
-            if not user:
-                user = pb.get('user_info', {}).get('base', {}).get('name', '???')
-            msg_type = pb.get('msg_type', 1)
-            
-            if msg_type == 1:
-                self.messages.append({
-                    'type': 'enter', 'user': user, 'text': '进入直播间',
-                    'time': time.time()
-                })
-                log(f"[进入] {user}")
-            elif msg_type == 2:
-                self.messages.append({
-                    'type': 'follow', 'user': user, 'text': '关注了直播间',
-                    'time': time.time()
-                })
-                log(f"[关注] {user}")
+            self._handle_interact(event)
         
         @self.room.on('ENTRY_EFFECT')
         async def on_entry_effect(event):
@@ -167,6 +149,75 @@ class BiliDanmakuClient:
             if count > 0:
                 self.online = count
     
+    def _handle_sc(self, event) -> None:
+        data = event['data'].get('data', {})
+        user = data.get('user_info', {}).get('uname', '???')
+        text = data.get('message', '')
+        price = data.get('price', 0)
+        
+        # 去重：避免同一条 SC 被两个事件重复添加
+        now = time.time()
+        for msg in reversed(list(self.messages)):
+            if (msg.get('type') == 'sc' and
+                msg.get('user') == user and
+                msg.get('text') == text and
+                msg.get('price') == price and
+                now - msg.get('time', 0) < 5):
+                return
+        
+        self.messages.append({
+            'type': 'sc', 'user': user, 'text': text, 'price': price,
+            'time': now
+        })
+        log(f"[SC {price}元] {user}: {text}")
+    
+    def _handle_interact(self, event) -> None:
+        data = event['data'].get('data', {})
+        
+        # 兼容多种数据结构
+        # V1: 直接在 data 中有 uname / msg_type
+        # V2: 可能在 pb_decoded 中，也可能直接在 data 中
+        user = ''
+        msg_type = 1
+        
+        pb = data.get('pb_decoded', {})
+        if pb:
+            user = pb.get('uname', '')
+            if not user:
+                user = pb.get('user_info', {}).get('base', {}).get('name', '')
+            msg_type = pb.get('msg_type', 1)
+        
+        if not user:
+            user = data.get('uname', '')
+        if not user:
+            user = data.get('user_info', {}).get('base', {}).get('name', '')
+        if not user:
+            return
+        
+        if 'msg_type' in data:
+            msg_type = data.get('msg_type', 1)
+        
+        now = time.time()
+        # 去重：短时间内同一用户的重复进入事件
+        for msg in reversed(list(self.messages)):
+            if (msg.get('type') == 'enter' and
+                msg.get('user') == user and
+                now - msg.get('time', 0) < 3):
+                return
+        
+        if msg_type == 1:
+            self.messages.append({
+                'type': 'enter', 'user': user, 'text': '进入直播间',
+                'time': now
+            })
+            log(f"[进入] {user}")
+        elif msg_type == 2:
+            self.messages.append({
+                'type': 'follow', 'user': user, 'text': '关注了直播间',
+                'time': now
+            })
+            log(f"[关注] {user}")
+    
     async def connect(self) -> None:
         self.running = True
         while self.running:
@@ -186,17 +237,33 @@ class BiliDanmakuClient:
                     log(f"连接错误: {error_msg}", 'error')
             if self.running:
                 self.reconnect_count += 1
-                log(f"3秒后重连 (第{self.reconnect_count}次)", 'warning')
-                await asyncio.sleep(3)
+                # 指数退避：3s, 6s, 12s, 24s... 最大 60s
+                delay = min(60, 3 * (2 ** (self.reconnect_count - 1)))
+                log(f"{delay}秒后重连 (第{self.reconnect_count}次)", 'warning')
+                await asyncio.sleep(delay)
     
     def stop(self) -> None:
         self.running = False
         self.connected = False
+        # 通知正在运行的事件循环去断开连接，而不是创建新循环
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.room.disconnect())
-            loop.close()
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.call_soon_threadsafe(self._schedule_disconnect, loop)
+            else:
+                # 没有运行中的循环，直接用新循环断开
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(self.room.disconnect())
+                loop.close()
+        except Exception:
+            pass
+    
+    def _schedule_disconnect(self, loop) -> None:
+        asyncio.ensure_future(self._safe_disconnect(), loop=loop)
+    
+    async def _safe_disconnect(self) -> None:
+        try:
+            await self.room.disconnect()
         except Exception:
             pass
     
@@ -229,7 +296,7 @@ class BiliDanmakuClient:
         elif msg_type == 'warning':
             self.messages.append({
                 'type': 'warning',
-                'user': '[警告] ',
+                'user': '[警告]',
                 'text': '直播内容涉及敏感话题，请注意规范',
                 'time': time.time()
             })
